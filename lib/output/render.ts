@@ -240,7 +240,7 @@ function displayLimitFor(
  */
 export const MERGED_SUBGROUP_LIMITS: Record<string, number> = {
   "tech:ai-news": 15,
-  "finance:news": 12,
+  "finance:news": 5,
   "politics:world": 15,
 };
 
