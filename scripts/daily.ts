@@ -124,9 +124,7 @@ async function enrichXViral(articles: ArticleInput[]): Promise<void> {
  * displayed limit (matches SOURCE_DISPLAY_LIMITS["tech:trending-papers"]).
  */
 async function enrichTrendingPapers(articles: ArticleInput[]): Promise<void> {
-  const papers = articles
-    .filter((a) => a.sourceId === "huggingface-papers")
-    .slice(0, 20);
+  const papers = articles.filter((a) => a.sourceId === "huggingface-papers");
   if (papers.length === 0) return;
   console.log(
     `[daily] enriching ${papers.length} trending papers with ${REPORT_LOCALE} summaries…`,
@@ -259,14 +257,20 @@ async function main() {
   await enrichAiNews(articles);
   await enrichXViral(articles);
 
-  // Trading signals: Yahoo fetch + indicators + commentary. Non-fatal —
-  // if it errors, we still ship the news digest.
+  // Trading signals: Yahoo fetch + indicators + commentary. Opt-in via
+  // REPORT_TRADING=true (default off) — the 市场行情 tab is hidden when
+  // report.trading is unset. Non-fatal — if it errors, we still ship the
+  // news digest.
   let trading: TradingSection | null = null;
-  try {
-    trading = await runTrading();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[daily] trading section failed: ${msg}`);
+  if (process.env.REPORT_TRADING === "true") {
+    try {
+      trading = await runTrading();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[daily] trading section failed: ${msg}`);
+    }
+  } else {
+    console.log(`[daily] trading section disabled (set REPORT_TRADING=true to enable)`);
   }
 
   console.log(`[daily] generating digest with ${getModelTag()}…`);

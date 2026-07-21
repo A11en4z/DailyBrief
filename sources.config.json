@@ -19,10 +19,11 @@
     "url": "https://www.v2ex.com/api/topics/show.json",
     "category": "tech",
     "subcategory": "cn-community",
-    "enabled": true,
+    "enabled": false,
     "locales": [
       "zh"
-    ]
+    ],
+    "notes": "Disabled — 社区讨论 tab removed from the report. Flip enabled:true to restore."
   },
   {
     "id": "linuxdo",
@@ -31,11 +32,11 @@
     "url": "https://linux.do/top.rss?period=daily",
     "category": "tech",
     "subcategory": "cn-community",
-    "enabled": true,
+    "enabled": false,
     "locales": [
       "zh"
     ],
-    "notes": "Discourse RSS feed; fetcher falls back to /latest.rss if /top.rss fails"
+    "notes": "Disabled — 社区讨论 tab removed from the report. Flip enabled:true to restore. Discourse RSS feed; fetcher falls back to /latest.rss if /top.rss fails"
   },
   {
     "id": "juejin",
@@ -56,10 +57,11 @@
     "url": "https://hacker-news.firebaseio.com/v0",
     "category": "tech",
     "subcategory": "overseas-community",
-    "enabled": true,
+    "enabled": false,
     "locales": [
       "en"
-    ]
+    ],
+    "notes": "Disabled — 社区讨论 tab removed from the report. Flip enabled:true to restore."
   },
   {
     "id": "lobsters",
@@ -496,11 +498,11 @@
     "category": "tech",
     "subcategory": "overseas-community",
     "useCurl": true,
-    "enabled": true,
+    "enabled": false,
     "locales": [
       "en"
     ],
-    "notes": "Lives in tech:overseas-community so it shares the L1 'Community' panel with Hacker News in en mode (mirrors cn-community in zh mode)."
+    "notes": "Disabled — 社区讨论 tab removed from the report. Flip enabled:true to restore. Lives in tech:overseas-community so it shares the L1 'Community' panel with Hacker News in en mode (mirrors cn-community in zh mode)."
   },
   {
     "id": "reddit-chinastocks",
