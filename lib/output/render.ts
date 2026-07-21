@@ -195,16 +195,12 @@ const SUBCATEGORY_LABELS: Record<string, string> = {
  * Per-source item caps in the raw display, keyed by "category:subcategory".
  * Each source inside the subcategory shows up to N items. Missing keys = no cap.
  *
- * Default 20 across all L3-tabbed subcategories keeps each tab a single
- * comfortable scroll instead of 25-30 items. Merged subgroups (blog-weekly,
- * finance:news, politics:world) ignore this — they use MERGED_SUBGROUP_LIMITS.
+ * The tech tabs (GitHub Trending / 热门论文 / X 推文) intentionally have NO cap
+ * so 技术动态 outputs everything the fetchers return (each is naturally bounded
+ * by its own fetch limit: GH 25, papers 30, X 20). Merged subgroups
+ * (finance:news, politics:world, tech:ai-news) use MERGED_SUBGROUP_LIMITS.
  */
-const SOURCE_DISPLAY_LIMITS: Record<string, number> = {
-  "tech:github-trending": 20,
-  "tech:cn-community": 10,
-  "tech:x-viral": 20,
-  "tech:trending-papers": 20,
-};
+const SOURCE_DISPLAY_LIMITS: Record<string, number> = {};
 
 /**
  * Sources whose fetcher returns items already sorted by an engagement/heat
@@ -239,9 +235,12 @@ function displayLimitFor(
  * Exported so daily.ts can read the cap to keep enrichment in sync.
  */
 export const MERGED_SUBGROUP_LIMITS: Record<string, number> = {
-  "tech:ai-news": 15,
-  "finance:news": 12,
-  "politics:world": 15,
+  // tech is the headline section — keep AI 媒体 generous. It merges ~7 RSS
+  // feeds so it still needs an upper bound (an uncapped merge could dump
+  // 100+ items and blow up the batched enrichment call).
+  "tech:ai-news": 30,
+  "finance:news": 10,
+  "politics:world": 10,
 };
 
 /**

@@ -139,27 +139,29 @@ Sources live in [`sources.config.json`](sources.config.json) at the project root
 
 ## Render layout (current, may evolve)
 
-L1 tabs in order: `tech / trading / politics / finance / community`
+L1 tabs in order: `tech / politics / finance` (+ optional `trading`)
 
 ```
-技术动态 (tech)
-  L2: GitHub Trending  (per-source, cap 20)
-  L2: X 推文           (single source attentionvc-ai, cap 20, preserve fetch order)
-  L2: AI 媒体          (merged 7 RSS sources, cap 15, summary)
-
-市场行情 (trading)
-  asset-group tabs: macro / 美股 / 加密 / 中港 / 商品外汇
+技术动态 (tech) — headline section, output everything the fetchers return
+  L2: GitHub Trending  (per-source, no cap → all ~25 fetched)
+  L2: 热门论文          (huggingface-papers, no cap → all ~30 fetched)
+  L2: X 推文           (single source attentionvc-ai, no cap, preserve fetch order)
+  L2: AI 媒体          (merged ~7 RSS sources, cap 30, summary)
 
 时政观察 (politics:world)
-  merged single timeline, cap 15, summary, sports filtered
+  merged single timeline, cap 10, summary, sports filtered
 
 财经要点 (finance:news)
-  merged single timeline, cap 12, summary
+  merged single timeline, cap 10, summary
 
-社区讨论 (community)
-  Source tabs: V2EX / LinuxDo (cap 10 each)
-  Note: cn-community is registered under category=tech but rendered as its
-  own L1 panel — see TECH_MAIN_SUBS vs TECH_COMMUNITY_SUBS in render.ts
+市场行情 (trading) — OPT-IN, hidden unless REPORT_TRADING=true
+  asset-group tabs: macro / 美股 / 加密 / 中港 / 商品外汇
+
+社区讨论 (community) — REMOVED (sources disabled in sources.config.json)
+  cn-community (V2EX / LinuxDo) + overseas-community (Hacker News / r/stocks)
+  are all enabled:false. Re-enable any of them to bring the tab back.
+  Note: they are registered under category=tech but render as their own L1
+  panel — see TECH_MAIN_SUBS vs TECH_COMMUNITY_SUBS in render.ts
 ```
 
 ## Scheduler integration (cross-platform)
