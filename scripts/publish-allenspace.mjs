@@ -44,6 +44,12 @@ const BRIEF_NAV_JS = path.join(
   "themeConfig",
   "brief-nav.js",
 );
+const BRIEF_ARCHIVE_MD = path.join(
+  ALLENSPACE_REPO,
+  "docs",
+  "_posts",
+  "brief-archive.md",
+);
 
 const NAV_RECENT = 7;
 const GIT_PUSH = process.env.GIT_PUSH !== "false";
@@ -135,6 +141,14 @@ function pickHeadline(data, date) {
   return date;
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function writeManifest(dates) {
   const entries = dates.map((date) => {
     const jsonPath = path.join(REPORTS, date, `${date}.json`);
@@ -185,6 +199,64 @@ module.exports = ${JSON.stringify(items, null, 2)}
   console.log(`[publish-allenspace] wrote brief-nav.js (${recent.length} recent)`);
 }
 
+function writeBriefArchiveMd(manifest) {
+  const entries = manifest.dates || [];
+  const latest = manifest.latest || entries[0]?.date || "";
+  const rows =
+    entries.length === 0
+      ? "<li>暂无晚报</li>"
+      : entries
+          .map((item) => {
+            const headline =
+              item.headline && item.headline !== item.date
+                ? `\n  <span class="headline">${escapeHtml(item.headline)}</span>`
+                : "";
+            return `<li><a href="${item.url}">${item.date}</a>${headline}</li>`;
+          })
+          .join("\n");
+
+  const body = `---
+title: AI 资讯归档
+date: ${latest || new Date().toISOString().slice(0, 10)} 00:00:00
+permalink: /pages/brief-archive/
+sidebar: false
+article: false
+comment: false
+editLink: false
+---
+
+<p class="brief-archive-meta">${entries.length} 期晚报 · 最新 ${latest || "—"}</p>
+
+<ul class="brief-archive-list">
+${rows}
+</ul>
+
+<p><a href="/brief/">→ 阅读最新晚报</a></p>
+
+<style>
+.brief-archive-meta { color: #888; font-size: 0.92rem; }
+.brief-archive-list { list-style: none; padding: 0; margin: 1.5rem 0; }
+.brief-archive-list li {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #eee;
+}
+.brief-archive-list a { font-weight: 600; text-decoration: none; }
+.brief-archive-list a:hover { text-decoration: underline; }
+.brief-archive-list .headline {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 400;
+  color: #666;
+  font-size: 0.92rem;
+}
+</style>
+`;
+
+  fs.mkdirSync(path.dirname(BRIEF_ARCHIVE_MD), { recursive: true });
+  fs.writeFileSync(BRIEF_ARCHIVE_MD, body, "utf8");
+  console.log("[publish-allenspace] wrote brief-archive.md");
+}
+
 function gitPushBlog() {
   if (!GIT_PUSH) {
     console.log("[publish-allenspace] GIT_PUSH=false — skipping git commit");
@@ -204,7 +276,15 @@ function gitPushBlog() {
   }
 
   const latest = listDates()[0] ?? "unknown";
-  spawnSync("git", ["add", "docs/.vuepress/public/brief", "docs/.vuepress/config/themeConfig/brief-nav.js"], {
+  spawnSync(
+    "git",
+    [
+      "add",
+      "docs/.vuepress/public/brief",
+      "docs/.vuepress/config/themeConfig/brief-nav.js",
+      "docs/_posts/brief-archive.md",
+    ],
+    {
     cwd: ALLENSPACE_REPO,
     stdio: "inherit",
   });
@@ -227,8 +307,9 @@ function gitPushBlog() {
 
 runBuildSite();
 const dates = syncBriefFiles();
-writeManifest(dates);
+const manifest = writeManifest(dates);
 writeBriefNav(dates);
+writeBriefArchiveMd(manifest);
 gitPushBlog();
 
 console.log(
