@@ -13,6 +13,7 @@
     "sources:check": "tsx scripts/sources.ts check",
     "deploy": "node scripts/deploy.mjs",
     "build-site": "node scripts/build-site.mjs",
+    "publish-allenspace": "node scripts/publish-allenspace.mjs",
     "open": "node scripts/open-report.mjs"
   },
   "dependencies": {

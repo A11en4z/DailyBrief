@@ -3,6 +3,7 @@
 约定：
 - REPORT_TZ=Asia/Shanghai，REPORT_LOCALE=zh，日期按上海时区 YYYY-MM-DD。
 - 仓库根目录操作；缺依赖先 npm ci。
+- 晚报发布到 Allen Space（A11en4z.github.io），URL 前缀 /brief/。
 
 1) 生成日报
    REPORT_TZ=Asia/Shanghai REPORT_LOCALE=zh WEB_MODE=true npm run daily
@@ -13,11 +14,15 @@
    JSON: daily_reports/<日期>/<日期>.json
    二者都必须存在。
 
-3) 发布 GitHub Pages（与仓库正式流程一致）
-   a. npm run build-site
-   b. 将 daily_reports/ 发布到 gh-pages 分支（可用 gh / git push，或
-      peaceiris 等价流程；保持 index.html + archive.html + 各日期目录）。
-   c. Pages 失败：记入最终回复，但只要 HTML 已生成仍继续发信（非致命）。
+3) 发布到 Allen Space（取代 DailyBrief 独立 gh-pages）
+   a. ALLENSPACE_REPO 默认 ../A11en4z.github.io（可环境变量覆盖）
+   b. npm run publish-allenspace
+      （内部：build-site → 同步 public/brief/ → manifest.json → brief-nav.js → git push 博客仓库）
+   c. 发布失败：记入最终回复，但只要 HTML 已生成仍继续发信（非致命）。
+   d. 线上地址：
+      - 最新：https://a11en4z.github.io/brief/
+      - 归档：https://a11en4z.github.io/pages/brief-archive/
+      - 当日：https://a11en4z.github.io/brief/<日期>/<日期>.html
 
 4) 发信（MCP：universal-email → send_email）
    若未登录：先 setup_email_account（provider=qq），再用环境变量账号；
@@ -30,8 +35,8 @@
      tech_briefs 按 importance 降序最多 8 条；每条一行：
      [importance] 标题 — 一句话 summary（可带链接）
    - 可选：finance_briefs / politics_briefs 各最多 2 条（同样按 importance）
-   - 文末：完整版 Pages 链接（若已知 PAGES_BASE_URL 或
-     https://<owner>.github.io/<repo>/<日期>/<日期>.html），
+   - 文末：完整版 Allen Space 链接
+     https://a11en4z.github.io/brief/<日期>/<日期>.html
      并写「完整 HTML 见附件」。
 
    send_email 参数：
@@ -39,11 +44,11 @@
    - subject: "Daily Brief <日期>"
    - text: 上述内容的纯文本版（必填，不得只有「今日日报见附件。」）
    - html: 上述内容的简洁 HTML 版（标题+段落+列表；不要把整份日报 HTML
-     塞进正文——整份日报只作附件）
+     塞进正文——整份晚报只作附件）
    - attachments: [{ "filename": "<日期>.html", "path": "<HTML 绝对路径>" }]
 
 5) daily 彻底失败时
    发一封纯文本邮件：说明失败原因 + logs/daily-*.log 末尾 30 行；不发附件。
 
 6) 最终只回复一行摘要：
-   成功或失败 | HTML 路径 | Pages 是否已发布 | 是否已发信
+   成功或失败 | HTML 路径 | Allen Space 是否已发布 | 是否已发信
