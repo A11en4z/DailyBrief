@@ -2,10 +2,12 @@ import type {
   ArticleInput,
   BriefItem,
   DailyReport,
+  EditorPickItem,
   TradingSection,
 } from "../ai/pipeline";
+import { sortFrontierArticles } from "../frontier-labs";
 import type { WatchlistPick } from "../ai/trading-commentary";
-import { REPORT_LOCALE } from "../sources/registry";
+import { REPORT_LOCALE, sources } from "../sources/registry";
 import { getReportTz } from "../utils";
 import type { Category, SourceDef } from "../sources/types";
 import { V2EX_OFF_TOPIC_RE } from "../sources/v2ex";
@@ -31,6 +33,8 @@ const TEXTS_ZH = {
   catTrading: "市场行情",
   catCommunity: "社区讨论",
   subAiNews: "AI 媒体",
+  subFrontier: "巨头动态",
+  subEditorPicks: "今日精选",
   subTrendingPapers: "热门论文",
   subXViral: "X 推文",
   subBlogWeekly: "博客周刊",
@@ -70,6 +74,7 @@ const TEXTS_ZH = {
   mdTodayKeywords: "今日关键词",
   mdImportance: "重要度",
   archiveLink: "← 历史归档",
+  backToTop: "↑ 顶部",
 };
 
 const TEXTS_EN: typeof TEXTS_ZH = {
@@ -80,6 +85,8 @@ const TEXTS_EN: typeof TEXTS_ZH = {
   catTrading: "Markets",
   catCommunity: "Community",
   subAiNews: "AI Media",
+  subFrontier: "Frontier Labs",
+  subEditorPicks: "Editor's Picks",
   subTrendingPapers: "Trending Papers",
   subXViral: "X Viral",
   subBlogWeekly: "Blog Weekly",
@@ -120,6 +127,7 @@ const TEXTS_EN: typeof TEXTS_ZH = {
   mdTodayKeywords: "Keywords",
   mdImportance: "Importance",
   archiveLink: "← Archive",
+  backToTop: "↑ Top",
 };
 
 const STR = REPORT_LOCALE === "en" ? TEXTS_EN : TEXTS_ZH;
@@ -171,12 +179,12 @@ const SUBCATEGORY_ORDER: Partial<Record<Category, string[]>> = {
   // Locale filtering at registry level decides which actually appears:
   // zh mode keeps cn-community (V2EX / LinuxDo); en mode keeps
   // overseas-community (Hacker News / r/stocks).
-  tech: ["github-trending", "trending-papers", "x-viral", "ai-news", "cn-community", "overseas-community"],
+  tech: ["frontier", "github-trending", "trending-papers", "x-viral", "ai-news", "cn-community", "overseas-community"],
   finance: ["news"],
   politics: ["world"],
 };
 
-const TECH_MAIN_SUBS = new Set(["github-trending", "trending-papers", "x-viral", "ai-news"]);
+const TECH_MAIN_SUBS = new Set(["frontier", "github-trending", "trending-papers", "x-viral", "ai-news"]);
 const TECH_COMMUNITY_SUBS = new Set(["cn-community", "overseas-community"]);
 
 const SUBCATEGORY_LABELS: Record<string, string> = {
@@ -185,6 +193,7 @@ const SUBCATEGORY_LABELS: Record<string, string> = {
   "cn-community": STR.subCnCommunity,
   "overseas-community": STR.subOverseasCommunity,
   "ai-news": STR.subAiNews,
+  frontier: STR.subFrontier,
   "x-viral": STR.subXViral,
   "blog-weekly": STR.subBlogWeekly,
   news: STR.subFinanceNews,
@@ -193,14 +202,27 @@ const SUBCATEGORY_LABELS: Record<string, string> = {
 
 /**
  * Per-source item caps in the raw display, keyed by "category:subcategory".
- * Each source inside the subcategory shows up to N items. Missing keys = no cap.
- *
- * The tech tabs (GitHub Trending / 热门论文 / X 推文) intentionally have NO cap
- * so 技术动态 outputs everything the fetchers return (each is naturally bounded
- * by its own fetch limit: GH 25, papers 30, X 20). Merged subgroups
- * (finance:news, politics:world, tech:ai-news) use MERGED_SUBGROUP_LIMITS.
+ * Exported so daily.ts enrichment stays aligned with display caps.
  */
-const SOURCE_DISPLAY_LIMITS: Record<string, number> = {};
+export const SOURCE_DISPLAY_LIMITS: Record<string, number> = {
+  "tech:github-trending": 10,
+  "tech:trending-papers": 10,
+  "tech:x-viral": 10,
+};
+
+/** Subcategories that hide the English excerpt block (summary only). */
+const HIDE_EXCERPT_SUBCATEGORIES = new Set([
+  "github-trending",
+  "trending-papers",
+  "x-viral",
+  "ai-news",
+  "frontier",
+]);
+
+/** Sources already in Chinese — can fall back to excerpt as 中文介绍 if LLM summary missing. */
+const ZH_SOURCE_IDS = new Set(
+  sources.filter((s) => s.lang === "zh").map((s) => s.id),
+);
 
 /**
  * Sources whose fetcher returns items already sorted by an engagement/heat
@@ -235,10 +257,8 @@ function displayLimitFor(
  * Exported so daily.ts can read the cap to keep enrichment in sync.
  */
 export const MERGED_SUBGROUP_LIMITS: Record<string, number> = {
-  // tech is the headline section — keep AI 媒体 generous. It merges ~7 RSS
-  // feeds so it still needs an upper bound (an uncapped merge could dump
-  // 100+ items and blow up the batched enrichment call).
-  "tech:ai-news": 30,
+  "tech:frontier": 10,
+  "tech:ai-news": 15,
   "finance:news": 10,
   "politics:world": 10,
 };
@@ -263,6 +283,17 @@ function mergedLimitFor(
   subId: string,
 ): number | undefined {
   return MERGED_SUBGROUP_LIMITS[`${category}:${subId}`];
+}
+
+function articleSubcategory(
+  a: ArticleInput,
+  subcatOf: Map<string, string | undefined>,
+): string | undefined {
+  return a.displaySubcategory ?? subcatOf.get(a.sourceId);
+}
+
+function sortFrontierMergeItems(items: ArticleInput[]): ArticleInput[] {
+  return sortFrontierArticles(items);
 }
 
 // ----- grouping -----
@@ -370,13 +401,19 @@ export function groupRaw(
         // the renderer can label them.
         const flat: ArticleInput[] = [];
         for (const [id, b] of buckets[cat].entries()) {
-          if (subcatOf.get(id) === subId) flat.push(...b.items);
+          for (const item of b.items) {
+            if (articleSubcategory(item, subcatOf) === subId) flat.push(item);
+          }
         }
         if (flat.length === 0) continue;
-        flat.sort(
-          (a, b) =>
-            (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0),
-        );
+        const sorted =
+          subId === "frontier"
+            ? sortFrontierMergeItems(flat)
+            : [...flat].sort(
+                (a, b) =>
+                  (b.publishedAt?.getTime() ?? 0) -
+                  (a.publishedAt?.getTime() ?? 0),
+              );
         subs.push({
           id: subId,
           name: SUBCATEGORY_LABELS[subId] ?? subId,
@@ -384,7 +421,7 @@ export function groupRaw(
             {
               sourceId: "_merged",
               sourceName: SUBCATEGORY_LABELS[subId] ?? subId,
-              items: flat.slice(0, mergeLimit),
+              items: sorted.slice(0, mergeLimit),
               merged: true,
             },
           ],
@@ -395,7 +432,14 @@ export function groupRaw(
       const limit = displayLimitFor(cat, subId);
       const sources: SourceGroup[] = [];
       for (const [id, b] of buckets[cat].entries()) {
-        if (subcatOf.get(id) === subId) sources.push(toSourceGroup(id, b, limit));
+        if (subcatOf.get(id) !== subId) continue;
+        const items = b.items.filter(
+          (item) => articleSubcategory(item, subcatOf) === subId,
+        );
+        if (items.length === 0) continue;
+        sources.push(
+          toSourceGroup(id, { sourceName: b.sourceName, items }, limit),
+        );
       }
       if (sources.length === 0) continue;
       subs.push({
@@ -441,13 +485,25 @@ function formatDate(d: Date | undefined): string {
 
 // ----- raw article renderers -----
 
-function renderArticleHtml(a: ArticleInput, showSource = false): string {
+function renderArticleHtml(
+  a: ArticleInput,
+  showSource = false,
+  subId?: string,
+): string {
   const title = escapeHtml(a.title);
   const url = escapeHtml(a.url);
-  const excerpt = a.excerpt ? escapeHtml(a.excerpt) : "";
+  const hideExcerpt = subId ? HIDE_EXCERPT_SUBCATEGORIES.has(subId) : false;
   // Backwards-compat: old sidecar JSON files may carry `cnSummary` instead.
-  const summaryText = a.summary ?? (a as unknown as { cnSummary?: string }).cnSummary;
-  const summary = summaryText ? escapeHtml(summaryText) : "";
+  const summaryRaw =
+    a.summary ?? (a as unknown as { cnSummary?: string }).cnSummary;
+  // When English excerpt is hidden, zh sources may fall back to excerpt as
+  // 中文介绍 if LLM summary is missing (avoids empty cards).
+  const introRaw =
+    summaryRaw ||
+    (hideExcerpt && ZH_SOURCE_IDS.has(a.sourceId) ? a.excerpt : undefined);
+  const excerpt =
+    !hideExcerpt && a.excerpt ? escapeHtml(a.excerpt) : "";
+  const summary = introRaw ? escapeHtml(introRaw) : "";
   const meta = a.meta ? escapeHtml(a.meta) : "";
   const time = formatDate(a.publishedAt);
   const sourceLabel = showSource && a.source ? escapeHtml(a.source) : "";
@@ -472,7 +528,7 @@ function renderSourceContent(
 ): string {
   const showSource = source.merged === true;
   return `<div class="source-content${isActive ? " active" : ""}" data-source-content="${escapeHtml(source.sourceId)}" data-sub="${escapeHtml(subId)}" data-cat="${category}">
-    ${source.items.length === 0 ? `<p class="empty">${STR.emptySource}</p>` : source.items.map((a) => renderArticleHtml(a, showSource)).join("\n")}
+    ${source.items.length === 0 ? `<p class="empty">${STR.emptySource}</p>` : source.items.map((a) => renderArticleHtml(a, showSource, subId)).join("\n")}
   </div>`;
 }
 
@@ -500,6 +556,38 @@ function renderSubContent(category: Category, sub: SubGroup, isActive: boolean):
       ${sub.sources.map((s, i) => renderSourceContent(category, sub.id, s, i === 0)).join("\n")}
     </div>
   </div>`;
+}
+
+function importanceRankClass(importance: number): string {
+  if (importance >= 8) return "high";
+  if (importance >= 5) return "mid";
+  return "low";
+}
+
+function renderEditorPickHtml(p: EditorPickItem): string {
+  const imp = Number.isFinite(p.importance) ? p.importance : 0;
+  const rankCls = importanceRankClass(imp);
+  return `<article class="brief">
+  <div class="brief-head">
+    <span class="brief-source">${escapeHtml(p.source)}</span>
+    <span class="brief-rank ${rankCls}">${imp}/10</span>
+  </div>
+  <h3 class="brief-title"><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.title)}</a></h3>
+  <p class="brief-summary">${escapeHtml(p.summary)}</p>
+</article>`;
+}
+
+function renderEditorPicksSection(picks: EditorPickItem[] | undefined): string {
+  if (!picks || picks.length === 0) return "";
+  return `<section class="editor-picks-section" aria-label="${escapeHtml(STR.subEditorPicks)}">
+  <div class="category-header">
+    <h2 class="category-title">${escapeHtml(STR.subEditorPicks)}</h2>
+    <span class="category-count">${picks.length}</span>
+  </div>
+  <div class="brief-list">
+    ${picks.map(renderEditorPickHtml).join("\n")}
+  </div>
+</section>`;
 }
 
 function renderRawCategoryPanel(
@@ -682,6 +770,11 @@ export function renderHtml(
     margin: 1.25rem 0 0.75rem;
     border-bottom: 1px solid var(--rule);
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    padding-top: 0.25rem;
   }
   .tab {
     background: none;
@@ -709,6 +802,37 @@ export function renderHtml(
   }
   .panel { display: none; }
   .panel.active { display: block; }
+
+  .editor-picks-section {
+    margin: 0 0 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .back-to-top {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 30;
+    padding: 0.55rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: var(--bg-elevated);
+    color: var(--fg);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .back-to-top.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .back-to-top:hover { transform: translateY(-2px); border-color: var(--muted); }
 
   /* ===== digest (AI 简报) — compact ===== */
   .digest-category { margin-bottom: 1.1rem; }
@@ -1190,7 +1314,7 @@ export function renderHtml(
 </style>
 </head>
 <body>
-<main>
+<main id="top">
   <header class="report-header">
     <span class="eyebrow">${STR.siteTitle}</span>
     <h1 class="report-title">${date}</h1>
@@ -1206,6 +1330,7 @@ export function renderHtml(
   </nav>
 
   <section class="panel active" data-panel="tech">
+    ${renderEditorPicksSection(report.tech_editor_picks)}
     ${renderRawCategoryPanel("tech", techMainSubs)}
   </section>
   ${trading ? `<section class="panel" data-panel="trading">${renderTradingPanel(trading)}</section>` : ""}
@@ -1223,7 +1348,20 @@ export function renderHtml(
     ${STR.footer}
   </footer>
 </main>
+<button type="button" class="back-to-top" id="back-to-top" aria-label="${escapeHtml(STR.backToTop)}">${escapeHtml(STR.backToTop)}</button>
 <script>
+  (function () {
+    var btn = document.getElementById('back-to-top');
+    if (!btn) return;
+    function onScroll() {
+      btn.classList.toggle('visible', window.scrollY > window.innerHeight * 0.6);
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    btn.addEventListener('click', function () {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  })();
   document.querySelectorAll('.tabs > .tab').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var target = btn.dataset.tab;
@@ -1509,6 +1647,11 @@ export function renderMarkdown(report: DailyReport, date: string): string {
   if (report.hero_headline) blocks.push(`> ${report.hero_headline}\n`);
   if (report.daily_overview) {
     blocks.push(`## ${STR.mdTodayOverview}\n\n${report.daily_overview}\n`);
+  }
+  if (report.tech_editor_picks && report.tech_editor_picks.length > 0) {
+    blocks.push(
+      renderSectionMarkdown(STR.subEditorPicks, report.tech_editor_picks),
+    );
   }
   blocks.push(
     renderSectionMarkdown(CATEGORY_DIGEST_LABELS.tech, report.tech_briefs),

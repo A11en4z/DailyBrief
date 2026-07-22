@@ -83,7 +83,7 @@
     "category": "tech",
     "subcategory": "ai-news",
     "lang": "zh",
-    "enabled": false,
+    "enabled": true,
     "locales": [
       "zh"
     ]
@@ -94,7 +94,7 @@
     "type": "rss",
     "url": "https://openai.com/news/rss.xml",
     "category": "tech",
-    "subcategory": "ai-news",
+    "subcategory": "frontier",
     "enabled": true,
     "locales": [
       "zh",
@@ -107,12 +107,89 @@
     "type": "rss",
     "url": "https://deepmind.google/blog/rss.xml",
     "category": "tech",
-    "subcategory": "ai-news",
+    "subcategory": "frontier",
     "enabled": true,
     "locales": [
       "zh",
       "en"
     ]
+  },
+  {
+    "id": "anthropic-news",
+    "name": "Anthropic News",
+    "type": "rss",
+    "url": "https://www.anthropic.com/news/rss.xml",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "RSS URL may change; enable after npm run dry-run confirms fetch."
+  },
+  {
+    "id": "meta-ai-blog",
+    "name": "Meta AI Blog",
+    "type": "rss",
+    "url": "https://ai.meta.com/blog/rss/",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "Enable after dry-run confirms RSS availability."
+  },
+  {
+    "id": "google-ai-blog",
+    "name": "Google AI Blog",
+    "type": "rss",
+    "url": "https://blog.google/technology/ai/rss/",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "Enable after dry-run confirms RSS availability."
+  },
+  {
+    "id": "xai-news",
+    "name": "xAI",
+    "type": "rss",
+    "url": "https://x.ai/blog/rss.xml",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "No stable public RSS confirmed; enable when URL verified."
+  },
+  {
+    "id": "qwen-blog",
+    "name": "Qwen / 通义",
+    "type": "rss",
+    "url": "https://qwenlm.github.io/blog/index.xml",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "Enable after dry-run confirms RSS availability."
+  },
+  {
+    "id": "deepseek-news",
+    "name": "DeepSeek",
+    "type": "rss",
+    "url": "https://www.deepseek.com/blog/rss.xml",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "Enable after dry-run confirms RSS availability."
+  },
+  {
+    "id": "moonshot-news",
+    "name": "Moonshot AI",
+    "type": "rss",
+    "url": "https://moonshot.ai/blog/rss.xml",
+    "category": "tech",
+    "subcategory": "frontier",
+    "enabled": false,
+    "locales": ["zh", "en"],
+    "notes": "Enable after dry-run confirms RSS availability."
   },
   {
     "id": "huggingface-blog",

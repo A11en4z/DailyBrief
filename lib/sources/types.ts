@@ -66,4 +66,9 @@ export interface RawArticle {
    * used by GitHub Trending for "Language · ★stars · forks · stars today".
    */
   meta?: string;
+  /**
+   * Override registry subcategory for grouping (e.g. ai-news item promoted
+   * into frontier via keyword match).
+   */
+  displaySubcategory?: string;
 }

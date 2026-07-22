@@ -3,8 +3,7 @@ import "./_env";
 import fs from "node:fs";
 import path from "node:path";
 
-import { sources, REPORT_LOCALE } from "../lib/sources/registry";
-import { fetchSource } from "../lib/sources/dispatch";
+import { generateEditorPicks } from "../lib/ai/editor-picks";
 import {
   generateDailyReport,
   type ArticleInput,
@@ -12,17 +11,24 @@ import {
 import { getModelTag, validateBackendCredentials } from "../lib/ai/llm";
 import {
   enrichFinanceNewsSummaries,
+  enrichFrontierSummaries,
   enrichGithubTrendingSummaries,
+  enrichQbitaiRewrites,
   enrichTrendingPapersSummaries,
   enrichXViralSummaries,
 } from "../lib/ai/enrich";
+import { sortFrontierArticles } from "../lib/frontier-labs";
 import {
   groupRaw,
   isSportsArticle,
   MERGED_SUBGROUP_LIMITS,
   renderHtml,
   renderMarkdown,
+  SOURCE_DISPLAY_LIMITS,
 } from "../lib/output/render";
+import { promoteFrontierArticles } from "../lib/sources/promote-frontier";
+import { sources, REPORT_LOCALE } from "../lib/sources/registry";
+import { fetchSource } from "../lib/sources/dispatch";
 import { analyzeWatchlist } from "../lib/trading/runner";
 import { fetchCryptoFearGreed } from "../lib/trading/fear-greed";
 import { fetchCryptoGlobal } from "../lib/trading/coingecko";
@@ -31,6 +37,10 @@ import type { TradingSection } from "../lib/ai/pipeline";
 import { todayKey } from "../lib/utils";
 
 const OUTPUT_DIR = "daily_reports";
+
+function displayCap(key: string, fallback: number): number {
+  return SOURCE_DISPLAY_LIMITS[key] ?? fallback;
+}
 
 async function fetchAll(): Promise<ArticleInput[]> {
   const articles: ArticleInput[] = [];
@@ -49,7 +59,10 @@ async function fetchAll(): Promise<ArticleInput[]> {
 }
 
 async function enrichGhTrending(articles: ArticleInput[]): Promise<void> {
-  const gh = articles.filter((a) => a.sourceId === "github-trending");
+  const cap = displayCap("tech:github-trending", 10);
+  const gh = articles
+    .filter((a) => a.sourceId === "github-trending")
+    .slice(0, cap);
   if (gh.length === 0) return;
   console.log(
     `[daily] enriching ${gh.length} GitHub Trending repos with ${REPORT_LOCALE} summaries…`,
@@ -65,13 +78,6 @@ async function enrichGhTrending(articles: ArticleInput[]): Promise<void> {
   );
 }
 
-/**
- * finance:news is rendered as a merged time-sorted list (see
- * MERGED_SUBGROUP_LIMITS in render.ts). Enrich exactly the items that
- * will be displayed: take all enabled finance:news articles, sort by
- * publishedAt desc, slice to the merge limit, ask Sonnet for Chinese
- * factual summaries.
- */
 async function enrichFinanceNews(articles: ArticleInput[]): Promise<void> {
   await enrichMergedSubgroup(articles, "finance", "news");
 }
@@ -85,22 +91,78 @@ async function enrichAiNews(articles: ArticleInput[]): Promise<void> {
 }
 
 /**
- * X 热帖 enrichment is different from merged subgroups — we preserve the
- * AttentionVC API's heat-rank order (do NOT sort by date) and cap to the
- * displayed limit (matches SOURCE_DISPLAY_LIMITS["tech:x-viral"]).
- *
- * The Sonnet prompt also differs (XVIRAL_SYSTEM_PROMPT in enrich.ts) — X
- * tweet titles are clickbait, the previewText holds the actual claim.
+ * 量子位：rewrite marketing titles + distill factual summaries.
+ * Runs on all fetched qbitai items that may appear in frontier or ai-news.
  */
+async function enrichQbitai(articles: ArticleInput[]): Promise<void> {
+  const items = articles.filter((a) => a.sourceId === "qbitai");
+  if (items.length === 0) return;
+  console.log(
+    `[daily] rewriting ${items.length} 量子位 titles + summaries…`,
+  );
+  const t0 = Date.now();
+  const rewrites = await enrichQbitaiRewrites(
+    items.map((a) => ({
+      url: a.url,
+      title: a.title,
+      excerpt: a.excerpt,
+      source: a.source,
+    })),
+  );
+  for (const a of items) {
+    const r = rewrites.get(a.url);
+    if (!r) continue;
+    a.title = r.title;
+    a.summary = r.summary;
+  }
+  console.log(
+    `[daily] qbitai rewrite done in ${((Date.now() - t0) / 1000).toFixed(1)}s, matched ${rewrites.size}/${items.length}`,
+  );
+}
+
+async function enrichFrontier(articles: ArticleInput[]): Promise<void> {
+  const subSources = sources.filter(
+    (s) =>
+      s.category === "tech" &&
+      s.subcategory === "frontier" &&
+      s.enabled !== false,
+  );
+  const officialIds = new Set(subSources.map((s) => s.id));
+  const limit = MERGED_SUBGROUP_LIMITS["tech:frontier"] ?? 10;
+
+  const pool = articles.filter(
+    (a) =>
+      a.displaySubcategory === "frontier" || officialIds.has(a.sourceId),
+  );
+  // Skip qbitai — handled by enrichQbitai (title rewrite + summary).
+  const top = sortFrontierArticles(pool)
+    .filter((a) => a.sourceId !== "qbitai")
+    .slice(0, limit);
+  const toEnrich = top.filter((a) => !a.summary);
+  if (toEnrich.length === 0) return;
+
+  console.log(
+    `[daily] enriching ${toEnrich.length}/${top.length} tech:frontier items with ${REPORT_LOCALE} summaries…`,
+  );
+  const t0 = Date.now();
+  const summaries = await enrichFrontierSummaries(toEnrich);
+  for (const a of toEnrich) {
+    const s = summaries.get(a.url);
+    if (s) a.summary = s;
+  }
+  console.log(
+    `[daily] enrichment done in ${((Date.now() - t0) / 1000).toFixed(1)}s, matched ${summaries.size}/${toEnrich.length}`,
+  );
+}
+
 async function enrichXViral(articles: ArticleInput[]): Promise<void> {
+  const cap = displayCap("tech:x-viral", 10);
   const xPosts = articles
     .filter((a) => a.sourceId === "attentionvc-ai")
-    .slice(0, 20);
+    .slice(0, cap);
   if (xPosts.length === 0) return;
   console.log(`[daily] enriching ${xPosts.length} X posts with ${REPORT_LOCALE} summaries…`);
   const t0 = Date.now();
-  // Author handle is encoded in the URL (https://x.com/{handle}/status/{id})
-  // — extract it to help the model identify whose claim it is.
   const summaries = await enrichXViralSummaries(
     xPosts.map((a) => ({
       url: a.url,
@@ -118,13 +180,11 @@ async function enrichXViral(articles: ArticleInput[]): Promise<void> {
   );
 }
 
-/**
- * Trending papers enrichment — preserves the fetcher's upvote-desc order
- * (huggingface-papers is in PRESERVE_FETCH_ORDER_SOURCES) and caps to the
- * displayed limit (matches SOURCE_DISPLAY_LIMITS["tech:trending-papers"]).
- */
 async function enrichTrendingPapers(articles: ArticleInput[]): Promise<void> {
-  const papers = articles.filter((a) => a.sourceId === "huggingface-papers");
+  const cap = displayCap("tech:trending-papers", 10);
+  const papers = articles
+    .filter((a) => a.sourceId === "huggingface-papers")
+    .slice(0, cap);
   if (papers.length === 0) return;
   console.log(
     `[daily] enriching ${papers.length} trending papers with ${REPORT_LOCALE} summaries…`,
@@ -142,17 +202,6 @@ async function enrichTrendingPapers(articles: ArticleInput[]): Promise<void> {
   );
 }
 
-/**
- * Shared implementation for "merged subgroup" enrichment: collect all
- * enabled articles in (category, subcategory), sort by date desc, take
- * the display cap (from MERGED_SUBGROUP_LIMITS), and ask the LLM to
- * summarize them into REPORT_LOCALE in a single batch. Symmetric to the
- * merge logic in render.ts groupRaw, so display and enrichment stay aligned.
- *
- * Sources whose `lang` already matches REPORT_LOCALE are skipped — no
- * point translating English to English (en mode) or Chinese to Chinese
- * (zh mode).
- */
 async function enrichMergedSubgroup(
   articles: ArticleInput[],
   category: "tech" | "finance" | "politics",
@@ -169,18 +218,21 @@ async function enrichMergedSubgroup(
     subSources.filter((s) => (s.lang ?? "en") === REPORT_LOCALE).map((s) => s.id),
   );
   const limit = MERGED_SUBGROUP_LIMITS[`${category}:${subcategory}`] ?? 12;
-  // Top-N respects all enabled sources (so we don't reshape the merged
-  // timeline). Enrichment only targets items NOT already in the target
-  // language within that slice.
   const top = articles
     .filter((a) => enabledIds.has(a.sourceId))
+    .filter((a) => (a.displaySubcategory ?? subcategory) === subcategory)
     .filter((a) => category !== "politics" || !isSportsArticle(a.title))
     .sort(
       (a, b) =>
         (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0),
     )
     .slice(0, limit);
-  const toEnrich = top.filter((a) => !sameLocaleIds.has(a.sourceId));
+  // Tech tabs hide English excerpts and need a 中文介绍 even for zh sources
+  // (distill / de-clickbait). Finance/politics still skip same-locale sources.
+  const toEnrich =
+    category === "tech"
+      ? top.filter((a) => a.sourceId !== "qbitai" && !a.summary)
+      : top.filter((a) => !sameLocaleIds.has(a.sourceId));
   if (toEnrich.length === 0) return;
   console.log(
     `[daily] enriching ${toEnrich.length}/${top.length} ${category}:${subcategory} items with ${REPORT_LOCALE} summaries…`,
@@ -196,11 +248,6 @@ async function enrichMergedSubgroup(
   );
 }
 
-/**
- * Pull daily OHLCV from Yahoo for every ticker in the watchlist, compute
- * indicators + signals, then ask Sonnet for a market overview + a
- * picks-to-watch list. Returns null if no ticker came back.
- */
 async function runTrading(): Promise<TradingSection | null> {
   console.log(`[daily] analyzing watchlist + crypto context (Yahoo / alt.me / CoinGecko)…`);
   const t0 = Date.now();
@@ -236,9 +283,13 @@ async function runTrading(): Promise<TradingSection | null> {
   };
 }
 
+function registrySubcategoryMap(): Map<string, string | undefined> {
+  const m = new Map<string, string | undefined>();
+  for (const s of sources) m.set(s.id, s.subcategory);
+  return m;
+}
+
 async function main() {
-  // Fail fast on misconfigured backend before we spend 30s fetching
-  // 500+ articles only to discover the LLM has no credentials.
   validateBackendCredentials();
 
   const date = todayKey();
@@ -249,18 +300,30 @@ async function main() {
     throw new Error("no articles fetched — aborting");
   }
 
-  // Enrich GH Trending, papers, finance news, and politics with summaries.
+  const promoted = promoteFrontierArticles(articles);
+  if (promoted > 0) {
+    console.log(`[daily] promoted ${promoted} ai-news items → frontier`);
+  }
+
+  await enrichQbitai(articles);
   await enrichGhTrending(articles);
   await enrichTrendingPapers(articles);
   await enrichFinanceNews(articles);
   await enrichPolitics(articles);
+  await enrichFrontier(articles);
   await enrichAiNews(articles);
   await enrichXViral(articles);
 
-  // Trading signals: Yahoo fetch + indicators + commentary. Opt-in via
-  // REPORT_TRADING=true (default off) — the 市场行情 tab is hidden when
-  // report.trading is unset. Non-fatal — if it errors, we still ship the
-  // news digest.
+  console.log(`[daily] generating editor picks with ${getModelTag()}…`);
+  const picksT0 = Date.now();
+  const techEditorPicks = await generateEditorPicks(
+    articles,
+    registrySubcategoryMap(),
+  );
+  console.log(
+    `[daily] editor picks ready in ${((Date.now() - picksT0) / 1000).toFixed(1)}s (${techEditorPicks.length} items)`,
+  );
+
   let trading: TradingSection | null = null;
   if (process.env.REPORT_TRADING === "true") {
     try {
@@ -277,6 +340,7 @@ async function main() {
   const t0 = Date.now();
   const { report } = await generateDailyReport(articles);
   if (trading) report.trading = trading;
+  if (techEditorPicks.length > 0) report.tech_editor_picks = techEditorPicks;
   console.log(`[daily] digest ready in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   const dateDir = path.join(OUTPUT_DIR, date);
@@ -284,9 +348,6 @@ async function main() {
   const base = path.join(dateDir, date);
   const raw = groupRaw(articles, sources);
   fs.writeFileSync(`${base}.json`, JSON.stringify(report, null, 2), "utf8");
-  // Sidecar with all fetched articles + LLM-attached summary, so
-  // scripts/render.ts can rebuild HTML/MD for UI iteration without
-  // re-fetching or re-calling the LLM.
   fs.writeFileSync(
     `${base}-articles.json`,
     JSON.stringify({ date, articles }, null, 2),

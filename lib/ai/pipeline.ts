@@ -16,6 +16,10 @@ export interface BriefItem {
   importance: number;
 }
 
+export interface EditorPickItem extends BriefItem {
+  lab?: string;
+}
+
 export interface DailyReport {
   hero_headline: string;
   daily_overview: string;
@@ -24,6 +28,8 @@ export interface DailyReport {
   politics_briefs: BriefItem[];
   editor_note: string;
   keywords: string[];
+  /** LLM-curated top tech picks for the evening report header. */
+  tech_editor_picks?: EditorPickItem[];
   /** Optional trading-signals section, present when scripts/daily.ts ran successfully. */
   trading?: TradingSection;
 }

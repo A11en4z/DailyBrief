@@ -142,11 +142,17 @@ Sources live in [`sources.config.json`](sources.config.json) at the project root
 L1 tabs in order: `tech / politics / finance` (+ optional `trading`)
 
 ```
-技术动态 (tech) — headline section, output everything the fetchers return
-  L2: GitHub Trending  (per-source, no cap → all ~25 fetched)
-  L2: 热门论文          (huggingface-papers, no cap → all ~30 fetched)
-  L2: X 推文           (single source attentionvc-ai, no cap, preserve fetch order)
-  L2: AI 媒体          (merged ~7 RSS sources, cap 30, summary)
+技术动态 (tech)
+  顶部固定: 今日精选 (tech_editor_picks, LLM 5-8 条 + importance)
+  L2: 巨头动态     (frontier merge, cap 10, 官博置顶 + 关键词 promote)
+  L2: GitHub Trending  (cap 10)
+  L2: 热门论文          (cap 10, 无英文 excerpt)
+  L2: X 推文           (cap 10, 无英文 excerpt, preserve fetch order)
+  L2: AI 媒体          (merged RSS, cap 15, 无英文 excerpt)
+  UI: sticky L1 tabs + 右下角回顶部按钮
+
+Evening delivery: Cursor Automation prompt in docs/evening-automation-prompt.md
+  (npm run daily → build-site → gh-pages → universal-email MCP)
 
 时政观察 (politics:world)
   merged single timeline, cap 10, summary, sports filtered

@@ -61,7 +61,7 @@ const FINANCE_SYSTEM_PROMPT_ZH = `你是一名中文财经编辑，为英文/中
 
 任务：根据 title + excerpt，生成一段 50-100 字的**中文摘要**：
   - 原文是英文 → 翻译关键信息为中文（不是逐字翻译，而是抽出要点）
-  - 原文是中文 → 凝练为信息密度更高的中文
+  - 原文是中文 → 凝练为信息密度更高的中文，禁止复述营销腔标题（「重磅」「炸了」「一文看懂」等）
   - 必须保留：关键数字（涨跌幅、金额、利率）、机构/公司/人名、地区
   - 必须中性事实陈述，不带情绪、不标题党
   - 信息不足时宁可短，不要编造或扩展
@@ -209,10 +209,72 @@ Output STRICTLY a JSON object, no markdown:
 
 // Pick the right localized prompt set at module init. Each enricher reaches
 // in via PROMPTS.<key> so the call sites stay locale-agnostic.
+const FRONTIER_SYSTEM_PROMPT_ZH = `${FINANCE_SYSTEM_PROMPT_ZH}
+
+额外要求：
+  - 这是前沿 AI 实验室（模型发布、API/产品、融资、安全政策）动态，摘要突出「谁发布了什么、有何影响」。
+  - 若输入已是中文：凝练事实要点，禁止复述营销腔标题（「重磅」「炸了」「一文看懂」等）。`;
+
+const FRONTIER_SYSTEM_PROMPT_EN = `${FINANCE_SYSTEM_PROMPT_EN}
+
+Extra:
+  - These are frontier AI lab updates (model releases, APIs/products, funding, safety policy). Highlight who did what and why it matters.
+  - If the input is already English, distill facts — do not echo clickbait headlines.`;
+
+const QBITAI_SYSTEM_PROMPT_ZH = `你是一名严谨的中文科技编辑，负责改写「量子位」等营销向 AI 媒体稿。
+
+输入：每条有 url、title（常带标题党）、excerpt（正文节选）。
+
+任务：为每条输出：
+  1. title：中性、信息密度高的中文标题，≤25 字。去掉「重磅 / 炸了 / 一文看懂 / 刚刚 / 官宣 / 太强了」等营销词；说清「谁 + 做了什么」。
+  2. summary：50-100 字事实摘要，保留关键数字、产品名、公司名、结论；不带情绪。
+
+输出严格 JSON 对象，不要 markdown：
+{
+  "items": [
+    { "url": "<原 url，精确复制>", "title": "<改写后中文标题>", "summary": "<50-100 字中文摘要>" },
+    ...
+  ]
+}
+
+**引号规则（重要！）**：字符串内的引用一律用中文全角引号「」或""，**绝不**用英文双引号 \"。`;
+
+const QBITAI_SYSTEM_PROMPT_EN = `You are a rigorous tech editor rewriting clickbait AI-media headlines (e.g. Qbitai-style).
+
+Input: each item has url, title (often clickbait), excerpt.
+
+Task: for each item output:
+  1. title: neutral, information-dense headline ≤25 words. Remove hype. State who + what.
+  2. summary: 50-100 word factual summary; keep numbers, products, companies, conclusions.
+
+Output STRICT JSON:
+{
+  "items": [
+    { "url": "<exact url>", "title": "<rewritten title>", "summary": "<50-100 word summary>" },
+    ...
+  ]
+}
+
+**Quote rule**: never use raw double quotes inside string values.`;
+
 const PROMPTS =
   REPORT_LOCALE === "en"
-    ? { gh: GH_SYSTEM_PROMPT_EN, finance: FINANCE_SYSTEM_PROMPT_EN, xViral: XVIRAL_SYSTEM_PROMPT_EN, papers: PAPERS_SYSTEM_PROMPT_EN }
-    : { gh: GH_SYSTEM_PROMPT_ZH, finance: FINANCE_SYSTEM_PROMPT_ZH, xViral: XVIRAL_SYSTEM_PROMPT_ZH, papers: PAPERS_SYSTEM_PROMPT_ZH };
+    ? {
+        gh: GH_SYSTEM_PROMPT_EN,
+        finance: FINANCE_SYSTEM_PROMPT_EN,
+        xViral: XVIRAL_SYSTEM_PROMPT_EN,
+        papers: PAPERS_SYSTEM_PROMPT_EN,
+        frontier: FRONTIER_SYSTEM_PROMPT_EN,
+        qbitai: QBITAI_SYSTEM_PROMPT_EN,
+      }
+    : {
+        gh: GH_SYSTEM_PROMPT_ZH,
+        finance: FINANCE_SYSTEM_PROMPT_ZH,
+        xViral: XVIRAL_SYSTEM_PROMPT_ZH,
+        papers: PAPERS_SYSTEM_PROMPT_ZH,
+        frontier: FRONTIER_SYSTEM_PROMPT_ZH,
+        qbitai: QBITAI_SYSTEM_PROMPT_ZH,
+      };
 
 const USER_PROMPT_HEADER =
   REPORT_LOCALE === "en"
@@ -365,4 +427,87 @@ export async function enrichTrendingPapersSummaries(
     excerpt: (it.excerpt ?? "").slice(0, 300),
   }));
   return runEnrichment(payload, PROMPTS.papers, "papers summaries");
+}
+
+/**
+ * Summaries for merged 巨头动态 items (frontier lab news).
+ */
+export async function enrichFrontierSummaries(
+  items: EnrichInput[],
+): Promise<Map<string, string>> {
+  if (items.length === 0) return new Map();
+  const payload = items.map((it) => ({
+    url: it.url,
+    title: it.title,
+    source: it.source ?? "",
+    excerpt: (it.excerpt ?? "").slice(0, 280),
+  }));
+  return runEnrichment(payload, PROMPTS.frontier, "frontier summaries");
+}
+
+export interface QbitaiRewrite {
+  title: string;
+  summary: string;
+}
+
+/**
+ * Rewrite clickbait 量子位 titles + distill factual Chinese summaries.
+ * Failures are non-fatal — caller gets an empty map.
+ */
+export async function enrichQbitaiRewrites(
+  items: EnrichInput[],
+): Promise<Map<string, QbitaiRewrite>> {
+  const result = new Map<string, QbitaiRewrite>();
+  if (items.length === 0) return result;
+
+  const payload = items.map((it) => ({
+    url: it.url,
+    title: it.title,
+    excerpt: (it.excerpt ?? "").slice(0, 320),
+  }));
+
+  const langHeader =
+    REPORT_LOCALE === "en"
+      ? "**Output language: ENGLISH ONLY.**"
+      : "**输出语言：仅中文。** title 与 summary 必须全部是中文。";
+  const userPrompt = [
+    langHeader,
+    "",
+    USER_PROMPT_HEADER(payload.length),
+    JSON.stringify(payload),
+    "",
+    REPORT_LOCALE === "en"
+      ? `Output {"items": [{"url": ..., "title": ..., "summary": ...}, ...]} — url must be copied exactly.`
+      : `请输出 {"items": [{"url": ..., "title": ..., "summary": ...}, ...]}，url 必须精确回填。`,
+  ].join("\n");
+
+  try {
+    const { text } = await runLlm({
+      systemPrompt: PROMPTS.qbitai,
+      userPrompt,
+      timeoutMs: 180_000,
+    });
+    const cleaned = extractJson(text);
+    let parsed: {
+      items?: Array<{ url?: string; title?: string; summary?: string }>;
+    };
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = JSON.parse(jsonrepair(cleaned));
+    }
+    for (const it of parsed.items ?? []) {
+      if (it.url && it.title && it.summary) {
+        result.set(it.url, {
+          title: it.title.trim(),
+          summary: it.summary.trim(),
+        });
+      }
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[enrich] qbitai rewrites failed: ${msg}`);
+  }
+
+  return result;
 }
