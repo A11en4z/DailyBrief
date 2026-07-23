@@ -129,6 +129,27 @@ const ALLEN_SPACE_CHROME = `<!-- allen-space-chrome -->
     <a href="/cloud/">运维笔记</a>
   </div>
 </nav>
+<script>
+(function(){
+  // Hide mini-chrome when embedded in Allen Space brief-reader iframe
+  try {
+    if (window.self !== window.top) {
+      var n = document.querySelector('.allen-space-chrome');
+      var s = document.getElementById('allen-space-chrome-style');
+      if (n) n.style.display = 'none';
+      if (s) s.remove();
+    }
+  } catch (e) {}
+  // #region agent log
+  try {
+    var el = document.querySelector('.allen-space-chrome');
+    var r = el ? el.getBoundingClientRect() : null;
+    var cs = el ? getComputedStyle(el) : null;
+    fetch('http://127.0.0.1:7769/ingest/fa9e3a93-d370-45dc-b725-74bc6a918a85',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0010a9'},body:JSON.stringify({sessionId:'0010a9',runId:'post-fix',hypothesisId:'H-A',location:'brief-chrome',message:'brief chrome visibility',data:{href:location.href,inIframe:window.self!==window.top,hasChrome:!!el,display:cs&&cs.display,height:r&&r.height},timestamp:Date.now()})}).catch(function(){});
+  } catch (e) {}
+  // #endregion
+})();
+</script>
 `;
 
 function injectAllenSpaceChrome(filePath) {
@@ -248,10 +269,11 @@ function writeManifest(dates) {
 function writeBriefNav(dates) {
   const recent = dates.slice(0, NAV_RECENT);
   const items = [
-    { text: "最新晚报", link: "/brief/" },
+    { text: "最新晚报", link: "/pages/brief-reader/" },
     ...recent.map((d) => ({
       text: d,
-      link: `/brief/${d}/${d}.html`,
+      // Use hash — VuePress rewrites `?d=YYYY-MM-DD` into `?d=YYYY-MM-DD.html`
+      link: `/pages/brief-reader/#${d}`,
     })),
     { text: "全部归档 →", link: "/pages/brief-archive/" },
   ];
@@ -277,7 +299,7 @@ function writeBriefArchiveMd(manifest) {
               item.headline && item.headline !== item.date
                 ? `\n  <span class="headline">${escapeHtml(item.headline)}</span>`
                 : "";
-            return `<li><a href="${item.url}">${item.date}</a>${headline}</li>`;
+            return `<li><a href="/pages/brief-reader/#${item.date}">${item.date}</a>${headline}</li>`;
           })
           .join("\n");
 
@@ -297,7 +319,7 @@ editLink: false
 ${rows}
 </ul>
 
-<p><a href="/brief/">→ 阅读最新晚报</a></p>
+<p><a href="/pages/brief-reader/">→ 阅读最新晚报</a></p>
 
 <style>
 .brief-archive-meta { color: #888; font-size: 0.92rem; }
