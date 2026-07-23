@@ -96,6 +96,70 @@ function copyDir(src, dest) {
   }
 }
 
+/** Site chrome for static /brief HTML (not present in VuePress shell). */
+const ALLEN_SPACE_CHROME = `<!-- allen-space-chrome -->
+<style id="allen-space-chrome-style">
+  .allen-space-chrome{
+    position:sticky;top:0;z-index:9999;
+    display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+    padding:0.65rem 1.25rem;
+    background:rgba(15,23,42,.94);
+    color:#e2e8f0;
+    border-bottom:1px solid rgba(148,163,184,.25);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    backdrop-filter:blur(8px);
+  }
+  .allen-space-chrome a{
+    color:#e2e8f0;text-decoration:none;font-size:0.9rem;opacity:.9;
+  }
+  .allen-space-chrome a:hover{opacity:1;text-decoration:underline}
+  .allen-space-chrome .brand{font-weight:700;font-size:0.95rem;letter-spacing:.01em}
+  .allen-space-chrome .links{display:flex;gap:0.95rem;flex-wrap:wrap;align-items:center}
+  .allen-space-chrome .back{
+    display:inline-flex;align-items:center;gap:0.3rem;
+    font-weight:600;color:#7dd3fc;
+  }
+  body{margin-top:0}
+</style>
+<nav class="allen-space-chrome" aria-label="Allen Space">
+  <a class="brand" href="/">Allen Space</a>
+  <div class="links">
+    <a class="back" href="/">← 返回首页</a>
+    <a href="/pages/brief-archive/">AI 资讯归档</a>
+    <a href="/cloud/">运维笔记</a>
+  </div>
+</nav>
+`;
+
+function injectAllenSpaceChrome(filePath) {
+  if (!fs.existsSync(filePath) || !filePath.endsWith(".html")) return;
+  let html = fs.readFileSync(filePath, "utf8");
+  if (html.includes("allen-space-chrome")) {
+    // Re-inject fresh chrome (idempotent replace)
+    html = html.replace(
+      /<!-- allen-space-chrome -->[\s\S]*?<\/nav>\n?/,
+      ALLEN_SPACE_CHROME,
+    );
+  } else if (/<body[^>]*>/i.test(html)) {
+    html = html.replace(/<body([^>]*)>/i, `<body$1>\n${ALLEN_SPACE_CHROME}`);
+  } else {
+    return;
+  }
+  fs.writeFileSync(filePath, html, "utf8");
+}
+
+function injectChromeIntoBriefTree(rootDir) {
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const p = path.join(dir, name);
+      if (fs.statSync(p).isDirectory()) walk(p);
+      else if (name.endsWith(".html")) injectAllenSpaceChrome(p);
+    }
+  };
+  walk(rootDir);
+  console.log("[publish-allenspace] injected Allen Space chrome into brief HTML");
+}
+
 function syncBriefFiles() {
   if (!fs.existsSync(ALLENSPACE_REPO)) {
     die(`ALLENSPACE_REPO not found: ${ALLENSPACE_REPO}`);
@@ -118,6 +182,8 @@ function syncBriefFiles() {
       fs.copyFileSync(src, path.join(BRIEF_PUBLIC, name));
     }
   }
+
+  injectChromeIntoBriefTree(BRIEF_PUBLIC);
 
   console.log(
     `[publish-allenspace] synced ${dates.length} report(s) → ${BRIEF_PUBLIC}`,
