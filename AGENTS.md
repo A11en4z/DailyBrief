@@ -98,3 +98,12 @@ sources.config.json   # SINGLE SOURCE OF TRUTH for the source registry
 - `FORKING.md` — common customizations (LLM provider, sources, layout, styling)
 - `.claude/skills/daily-brief/SKILL.md` — fuller operational reference (Claude Code auto-loads it; other agents can read it directly)
 - `sources.config.json` — see what sources look like in practice
+
+## Cursor Cloud specific instructions
+
+Environment is ready after the startup update script runs `npm install`. Node 20+ is present; there is no `claude` CLI, so the default `claude-cli` LLM backend is unavailable here — do not rely on it.
+
+- **LLM backend is pre-wired via secrets.** The cloud VM injects `LLM_BACKEND` (`openai`, an OpenAI-compatible endpoint), plus `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`. The `openai-compat` backend reads these generic `LLM_*` vars as fallbacks (see `lib/ai/backends/openai-compat.ts`), so `npm run daily` runs end-to-end (~4-6 min, ~9 LLM calls) with no extra config. If those secrets are missing, only the no-LLM commands below work.
+- **No lint or test suite exists.** Use `npx tsc --noEmit` as the typecheck (tsconfig is `noEmit`). There is no ESLint config and no `npm test`.
+- **Fetch-only sanity check:** `npm run dry-run` (no LLM, needs outbound network; fetches ~500+ articles across ~60 sources here).
+- **Viewing output:** reports write to `daily_reports/<date>/` (gitignored). The HTML is a self-contained file; to view it in a browser serve the dir, e.g. `python3 -m http.server 8090` from `daily_reports/` then open `/index.html` (after `npm run build-site` generates the index).
