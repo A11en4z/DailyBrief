@@ -98,3 +98,17 @@ sources.config.json   # SINGLE SOURCE OF TRUTH for the source registry
 - `FORKING.md` — common customizations (LLM provider, sources, layout, styling)
 - `.claude/skills/daily-brief/SKILL.md` — fuller operational reference (Claude Code auto-loads it; other agents can read it directly)
 - `sources.config.json` — see what sources look like in practice
+
+## Cursor Cloud specific instructions
+
+Node 22 is preinstalled and works (README says 20+). The update script runs `npm install`; no build step exists (`tsx` runs the TS directly).
+
+There is no `eslint` config and no unit-test framework. For a "does it compile" check use `npx tsc --noEmit`. The closest thing to a test is `npm run sources:check` (validates `sources.config.json`).
+
+`npm run dry-run` is the safe way to exercise the app end-to-end here: it fetches all enabled sources over the live network (~60s, ~500+ articles) and makes **no LLM calls**, so it needs no credentials.
+
+The full pipeline (`npm run daily`, `npm run regen-trading`, `npm run regen-enrich`) and any command that hits the LLM will **not** run in a bare cloud VM: there is no `claude` CLI and no API keys. `daily` fails fast (<1s) with a clear message from `validateBackendCredentials`. To generate a real report, set an LLM backend first (e.g. `LLM_BACKEND=deepseek` + `DEEPSEEK_API_KEY=…`, or any backend from the README's LLM table) via env vars or `.env.local`.
+
+`npm run render [date]` only works after a `npm run daily` for that date has written the `daily_reports/<date>/<date>.json` + `<date>-articles.json` cache; it cannot render from nothing.
+
+Model choice gotcha (OpenAI-compatible gateways such as OpenCode Zen/Go): the `openai` backend sends a fixed `max_tokens: 8192` (`lib/ai/backends/openai-compat.ts`). Heavy **reasoning** models spend that entire budget on `reasoning_content` and return empty `content`. The small enrichment calls survive, but the large digest call (~24k input chars) comes back empty and `npm run daily` dies at the JSON.parse in `pipeline.ts`. Fix: point `LLM_MODEL` at a **non-reasoning** chat/completions model (verified end-to-end on the gateway's `/models` list). To use such a gateway set `LLM_BACKEND=openai` plus `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` (see README's LLM table). Note: GPT-5.x models are unusable here — they require the `/v1/responses` endpoint, which this backend does not call.
